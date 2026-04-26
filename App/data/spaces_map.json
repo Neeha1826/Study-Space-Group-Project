@@ -1,0 +1,51 @@
+{
+  "comment": "thingsboardDeviceId: ThingsBoard device UUID (see Devices in the TB UI). If null, this space uses local demo data. Telemetry keys must match the Pi (CAPACITY, TEMPERATURE, HUMIDITY, LIGHT, NOISE).",
+  "noiseMapping": {
+    "comment": "Grove NOISE is typically 0-1023 analog; if your team already stores dB in TB, set useRawAnalog to false and treat NOISE as dB.",
+    "useRawAnalog": true,
+    "rawMin": 0,
+    "rawMax": 1023,
+    "dbMin": 28,
+    "dbMax": 70
+  },
+  "staleAfterSeconds": 120,
+  "historyPoints": 12,
+  "spaces": [
+    {
+      "id": "assl",
+      "thingsboardDeviceId": null,
+      "name": "Arts and Social Studies Library",
+      "address": "Colum Dr, Cardiff",
+      "postcode": "CF10 3LB",
+      "capacity": 750,
+      "camera": { "model": "EdgeCam v2", "confidence": 0.91 }
+    },
+    {
+      "id": "abacws",
+      "thingsboardDeviceId": null,
+      "name": "Abacws",
+      "address": "Senghennydd Rd, Cardiff",
+      "postcode": "CF24 4AG",
+      "capacity": 520,
+      "camera": { "model": "EdgeCam v2", "confidence": 0.88 }
+    },
+    {
+      "id": "mainlib",
+      "thingsboardDeviceId": null,
+      "name": "Main Library",
+      "address": "The Parade, Cardiff",
+      "postcode": "CF10 3AY",
+      "capacity": 1100,
+      "camera": { "model": "EdgeCam v1", "confidence": 0.84 }
+    },
+    {
+      "id": "talyb",
+      "thingsboardDeviceId": null,
+      "name": "Talybont Study Hub",
+      "address": "Talybont North, Cardiff",
+      "postcode": "CF14 3AX",
+      "capacity": 380,
+      "camera": { "model": "EdgeCam v2", "confidence": 0.0 }
+    }
+  ]
+}
