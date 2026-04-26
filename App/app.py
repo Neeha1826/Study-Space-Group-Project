@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -7,12 +8,39 @@ from typing import Any
 from flask import Flask, jsonify, request, session, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 
+from spaces_service import build_spaces_payload
+from thingsboard_client import ThingsBoardClient
+
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / 'students.db'
 STATIC_DIR = BASE_DIR / 'static'
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path='')
 app.config['SECRET_KEY'] = 'change-this-to-a-random-secret-key'
+
+_TB_CLIENT: ThingsBoardClient | None = None
+_TB_RESOLVED: bool = False
+
+
+def get_thingsboard_client() -> ThingsBoardClient | None:
+    """Singleton from environment variables; returns None if not configured."""
+    global _TB_CLIENT, _TB_RESOLVED
+    if _TB_RESOLVED:
+        return _TB_CLIENT
+    _TB_RESOLVED = True
+    url = os.environ.get('THINGSBOARD_URL', '').strip()
+    user = os.environ.get('THINGSBOARD_USERNAME', '').strip()
+    pw = os.environ.get('THINGSBOARD_PASSWORD', '').strip()
+    if not (url and user and pw):
+        return None
+    verify = os.environ.get('THINGSBOARD_VERIFY_SSL', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    _TB_CLIENT = ThingsBoardClient(
+        url,
+        user,
+        pw,
+        verify_ssl=verify,
+    )
+    return _TB_CLIENT
 
 
 def get_db() -> sqlite3.Connection:
@@ -168,6 +196,26 @@ def get_profile() -> Any:
     if not user:
         return jsonify({'ok': False, 'message': 'Please log in first.'}), 401
     return jsonify({'ok': True, 'user': user})
+
+
+@app.get('/api/spaces/live')
+def spaces_live() -> Any:
+    """
+    Merge ThingsBoard telemetry with local metadata. Keys must match the Pi (e.g. CAPACITY = people count).
+    See data/spaces_map.json and THINGSBOARD_URL / THINGSBOARD_USERNAME / THINGSBOARD_PASSWORD.
+    """
+    tb = get_thingsboard_client()
+    try:
+        spaces, source, err = build_spaces_payload(tb)
+    except OSError as e:
+        return jsonify({'ok': False, 'message': str(e), 'source': 'error', 'spaces': []}), 500
+    return jsonify({
+        'ok': True,
+        'source': source,
+        'thingsboardConfigured': bool(tb),
+        'warning': err,
+        'spaces': spaces,
+    })
 
 
 if __name__ == '__main__':
