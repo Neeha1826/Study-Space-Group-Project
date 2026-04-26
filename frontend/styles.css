@@ -124,6 +124,23 @@ body{
 .brand-name{ font-weight: 900; letter-spacing: .2px; }
 .brand-sub{ font-size: 12px; color: var(--muted); margin-top: 2px; }
 
+/* ThingsBoard / demo source indicator */
+.source-pill{
+  margin-left: 4px;
+  align-self: center;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(15,23,42,.04);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.source-pill.tb{ border-color: rgba(22,163,74,.25); color: #0f5132; background: rgba(22,163,74,.10); }
+.source-pill.hybrid{ border-color: rgba(37,99,235,.25); color: #0b1b4d; background: rgba(37,99,235,.10); }
+.source-pill.demo, .source-pill.offline{ border-color: rgba(245,158,11,.28); color: #7a3200; background: rgba(245,158,11,.10); }
+
 .search{
   flex:1;
   display:flex;
