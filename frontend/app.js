@@ -1,4 +1,3 @@
-
 const SPACES_DEMO = [
   {
     id: "assl",
@@ -62,19 +61,6 @@ let spaces = cloneSpaces(SPACES_DEMO);
 let dataSource = "client-demo";
 let tbWarning = null;
 
-function isLiveFromServer() {
-  return dataSource === "thingsboard" || dataSource === "hybrid";
-}
-
-function isServerStaticDemo() {
-  return dataSource === "demo";
-}
-
-/** 经 Flask 提供的数据（含纯 demo），不要用前端随机数覆盖 */
-function usesFlaskData() {
-  return isLiveFromServer() || isServerStaticDemo();
-}
-
 function updateDataSourcePill() {
   const el = document.getElementById("dataSourcePill");
   if (!el) return;
@@ -83,59 +69,101 @@ function updateDataSourcePill() {
   if (dataSource === "thingsboard") {
     el.classList.add("tb");
     label = "ThingsBoard";
-  } else if (dataSource === "hybrid") {
-    el.classList.add("hybrid");
-    label = "TB + demo";
-  } else if (dataSource === "demo") {
+  } else if (dataSource === "client-demo") {
     el.classList.add("demo");
-    label = "Demo (server)";
+    label = "Demo (Simulated)";
   } else {
     el.classList.add("offline");
   }
   el.textContent = label;
-  el.title = tbWarning ? tbWarning : "Data source: ThingsBoard 遥测经 Flask /api/spaces/live 合并；未配置时为本机演示。";
+  el.title = tbWarning ? tbWarning : "Live data via ThingsBoard.";
+}
+
+const TB_BASE_URL = "https://eu.thingsboard.cloud";
+const TB_DEVICE_ID = "f947bef0-4194-11f1-9a3c-1fb54f58cf69";
+const TB_USERNAME = "viewer@cardiff.ac.uk";
+const TB_PASSWORD = "test123";
+
+let tbJwtToken = null;
+
+async function getTbToken() {
+  if (tbJwtToken) return tbJwtToken;
+
+  const res = await fetch(`${TB_BASE_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: TB_USERNAME, password: TB_PASSWORD })
+  });
+
+  if (!res.ok) throw new Error("TB Auth Failed");
+  const data = await res.json();
+  tbJwtToken = data.token;
+  return tbJwtToken;
 }
 
 async function loadRemoteSpaces() {
   try {
-    const r = await fetch("/api/spaces/live", { credentials: "same-origin" });
-    if (!r.ok) {
-      throw new Error("HTTP " + r.status);
+    const token = await getTbToken();
+
+    const keys = "temperature,humidity,occupancy,noiseLevel";
+    const res = await fetch(`${TB_BASE_URL}/api/plugins/telemetry/DEVICE/${TB_DEVICE_ID}/values/timeseries?keys=${keys}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (res.status === 401) {
+      tbJwtToken = null;
+      throw new Error("Token expired");
     }
-    const j = await r.json();
-    if (!j.ok || !Array.isArray(j.spaces)) {
-      throw new Error("Bad response");
+    if (!res.ok) throw new Error("Failed to fetch telemetry");
+
+    const tbData = await res.json();
+
+    const liveTemp = tbData.temperature ? parseFloat(tbData.temperature[0].value) : null;
+    const liveHum = tbData.humidity ? parseFloat(tbData.humidity[0].value) : null;
+    const liveOcc = tbData.occupancy ? parseInt(tbData.occupancy[0].value) : null;
+    const liveNoise = tbData.noiseLevel ? parseInt(tbData.noiseLevel[0].value) : null;
+
+    const targetSpace = spaces.find(s => s.id === "assl");
+
+    if (targetSpace) {
+      if (liveTemp !== null) targetSpace.tempC = liveTemp;
+      if (liveHum !== null) targetSpace.humidity = liveHum;
+      if (liveOcc !== null) targetSpace.occupied = liveOcc;
+      if (liveNoise !== null) targetSpace.noiseDb = liveNoise;
+
+      targetSpace.camera.online = true;
+      targetSpace.camera.lastSeenSec = 0;
+      targetSpace.camera.confidence = 0.95;
+
+      const ratio = targetSpace.occupied / targetSpace.capacity;
+      targetSpace.history.shift();
+      targetSpace.history.push(Math.round(ratio * 100));
     }
-    spaces = j.spaces;
-    dataSource = j.source || "demo";
-    tbWarning = j.warning || null;
+
+    dataSource = "thingsboard";
+    tbWarning = null;
     updateDataSourcePill();
-    render();
-    if (drawer.classList.contains("open")) {
-      const name = drawerTitle.textContent;
-      const sp = spaces.find(s => s.name === name);
-      if (sp) openDrawer(sp);
-    }
+
   } catch (e) {
-    spaces = cloneSpaces(SPACES_DEMO);
+    console.error("ThingsBoard Error:", e);
     dataSource = "client-demo";
-    tbWarning = e && e.message ? String(e.message) : "fetch failed";
+    tbWarning = "Live connection lost. Using simulated data.";
     updateDataSourcePill();
-    render();
   }
 }
 
-
-const prefs = {
-  cap: "empty",
-  noise: "quiet",
-  temp: "comfortable"
-};
+// ==========================================
+// UI & Logic
+// ==========================================
+const prefs = { cap: "empty", noise: "quiet", temp: "comfortable" };
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
-// DOM
 const recommendedList = $("#recommendedList");
 const allList = $("#allList");
 const recommendedEmpty = $("#recommendedEmpty");
@@ -143,7 +171,6 @@ const allEmpty = $("#allEmpty");
 const q = $("#q");
 const sortBy = $("#sortBy");
 
-// Drawer
 const drawer = $("#drawer");
 const drawerBackdrop = $("#drawerBackdrop");
 const drawerClose = $("#drawerClose");
@@ -151,17 +178,12 @@ const drawerTitle = $("#drawerTitle");
 const drawerSub = $("#drawerSub");
 const drawerBody = $("#drawerBody");
 
-
 const toastRoot = $("#toastRoot");
-
 
 const favourites = new Set();
 const pinnedToRecommended = new Set();
 
-
-function occupancyRatio(s) {
-  return s.capacity <= 0 ? 1 : s.occupied / s.capacity;
-}
+function occupancyRatio(s) { return s.capacity <= 0 ? 1 : s.occupied / s.capacity; }
 function pct(n) { return Math.round(n); }
 
 function capClass(r) {
@@ -193,7 +215,6 @@ function capLabel(c) {
   return c.charAt(0).toUpperCase() + c.slice(1);
 }
 
-
 function matchScore(s) {
   const r = occupancyRatio(s);
   const capC = capClass(r);
@@ -204,26 +225,14 @@ function matchScore(s) {
   const noiseMatch = noiseC === prefs.noise ? 1 : 0;
   const tempMatch = tempC === prefs.temp ? 1 : 0;
 
-  const freeSeatsQuality = 1 - r; // 0..1
+  const freeSeatsQuality = 1 - r;
   const cameraPenalty = s.camera.online ? 0 : -0.25;
 
-  return (
-    freeSeatsQuality * 3.0 +
-    capMatch * 1.4 +
-    noiseMatch * 1.1 +
-    tempMatch * 0.9 +
-    cameraPenalty
-  );
+  return (freeSeatsQuality * 3.0 + capMatch * 1.4 + noiseMatch * 1.1 + tempMatch * 0.9 + cameraPenalty);
 }
 
-
 function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(str).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
 function renderCard(s, { mode, index }) {
@@ -237,7 +246,6 @@ function renderCard(s, { mode, index }) {
   el.className = "card ripple";
   el.dataset.open = s.id;
 
-  // enter animation
   el.style.opacity = "0";
   el.style.transform = "translateY(8px)";
   el.style.transition = "opacity .35s ease, transform .35s ease, box-shadow .18s ease, background .18s ease";
@@ -250,89 +258,56 @@ function renderCard(s, { mode, index }) {
       <div class="title-row">
         <h3 class="space-title">${escapeHtml(s.name)}</h3>
         <div class="badge" title="Smart score based on preference + live data">
-          <span class="dot"></span>
-          Score ${score.toFixed(2)}
+          <span class="dot"></span>Score ${score.toFixed(2)}
         </div>
       </div>
-
       <div class="addr">${escapeHtml(s.address)} • ${escapeHtml(s.postcode)}</div>
-
       <div class="badges">
         <span class="badge" title="${pct(r*100)}% occupancy">
-          <span class="dot ${dotClassFor("cap", capC)}"></span>
-          Capacity: ${capLabel(capC)} (${s.occupied}/${s.capacity})
+          <span class="dot ${dotClassFor("cap", capC)}"></span>Capacity: ${capLabel(capC)} (${s.occupied}/${s.capacity})
         </span>
-
         <span class="badge" title="${s.noiseDb} dB">
-          <span class="dot ${dotClassFor("noise", noiseC)}"></span>
-          Noise: ${capLabel(noiseC)}
+          <span class="dot ${dotClassFor("noise", noiseC)}"></span>Noise: ${capLabel(noiseC)}
         </span>
-
         <span class="badge" title="${s.tempC.toFixed(1)}°C">
-          <span class="dot ${dotClassFor("temp", tempC)}"></span>
-          Temp: ${capLabel(tempC)}
+          <span class="dot ${dotClassFor("temp", tempC)}"></span>Temp: ${capLabel(tempC)}
         </span>
       </div>
     </div>
-
     <div class="side">
       <div class="metric">
-        <div class="label">
-          <span>Occupancy</span>
-          <span>${pct(r*100)}%</span>
-        </div>
+        <div class="label"><span>Occupancy</span><span>${pct(r*100)}%</span></div>
         <div class="value">${freeSeats} seats free</div>
         <div class="bar"><i style="width:${Math.min(100, Math.max(0, pct(r*100)))}%"></i></div>
-
         <div class="cam">
           <div class="status" title="Data source: camera + sensors">
-            <span class="${s.camera.online ? "pulse" : "dot bad"}"></span>
-            Camera ${s.camera.online ? "Online" : "Offline"}
+            <span class="${s.camera.online ? "pulse" : "dot bad"}"></span>Camera ${s.camera.online ? "Online" : "Offline"}
           </div>
           <div class="badge" title="Last update from camera/sensor feed">
-            <span class="dot ${dotClassFor("cam", s.camera.online)}"></span>
-            ${s.camera.online ? `${s.camera.lastSeenSec}s ago` : `stale`}
+            <span class="dot ${dotClassFor("cam", s.camera.online)}"></span>${s.camera.online ? `${s.camera.lastSeenSec}s ago` : `stale`}
           </div>
         </div>
       </div>
-
       <div class="actions" onclick="event.stopPropagation()">
-        ${
-          mode === "all"
-            ? `<button class="icon-btn primary ripple" data-pin="${s.id}" title="Add to Recommended">+</button>`
-            : `<button class="icon-btn ripple" data-unpin="${s.id}" title="Remove from Recommended">×</button>`
-        }
-        <button class="icon-btn ripple" data-fav="${s.id}" title="Toggle favourite">
-          ${favourites.has(s.id) ? "★" : "☆"}
-        </button>
+        ${ mode === "all" ? `<button class="icon-btn primary ripple" data-pin="${s.id}" title="Add to Recommended">+</button>` : `<button class="icon-btn ripple" data-unpin="${s.id}" title="Remove from Recommended">×</button>` }
+        <button class="icon-btn ripple" data-fav="${s.id}" title="Toggle favourite">${favourites.has(s.id) ? "★" : "☆"}</button>
       </div>
     </div>
   `;
 
-  requestAnimationFrame(() => {
-    el.style.opacity = "1";
-    el.style.transform = "translateY(0)";
-  });
-
+  requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateY(0)"; });
   return el;
 }
 
-// =======================
-// Filtering & sorting
-// =======================
 function searchFilter(list) {
   const term = q.value.trim().toLowerCase();
   if (!term) return list;
-  return list.filter(s => {
-    const hay = `${s.name} ${s.address} ${s.postcode}`.toLowerCase();
-    return hay.includes(term);
-  });
+  return list.filter(s => `${s.name} ${s.address} ${s.postcode}`.toLowerCase().includes(term));
 }
 
 function sortAll(list) {
   const key = sortBy.value;
   const copy = [...list];
-
   if (key === "score") return copy.sort((a,b) => matchScore(b) - matchScore(a));
   if (key === "occupancy") return copy.sort((a,b) => occupancyRatio(a) - occupancyRatio(b));
   if (key === "temp") return copy.sort((a,b) => a.tempC - b.tempC);
@@ -348,9 +323,6 @@ function recommendedBase(list) {
   return [...top, ...pinned];
 }
 
-// =======================
-// Drawer (details)
-// =======================
 function openDrawer(space) {
   drawerTitle.textContent = space.name;
   drawerSub.textContent = `${space.address} • ${space.postcode}`;
@@ -360,54 +332,32 @@ function openDrawer(space) {
   const noiseC = noiseClass(space.noiseDb);
   const tempC = tempClass(space.tempC);
   const score = matchScore(space);
-
   const alerts = buildAlerts(space);
 
   drawerBody.innerHTML = `
     <div class="kpi">
-      <div class="box">
-        <div class="label"><span>Smart score</span><span>Rank</span></div>
-        <div class="value">${score.toFixed(2)} • ${rankText(score)}</div>
-      </div>
-      <div class="box">
-        <div class="label"><span>Data freshness</span><span>Source</span></div>
-        <div class="value">${space.camera.online ? `${space.camera.lastSeenSec}s ago` : `Stale`} • Camera</div>
-      </div>
-
-      <div class="box">
-        <div class="label"><span>Occupancy</span><span>${pct(r*100)}%</span></div>
-        <div class="value">${space.occupied}/${space.capacity} • ${capLabel(capC)}</div>
-      </div>
-      <div class="box">
-        <div class="label"><span>Camera</span><span>Confidence</span></div>
-        <div class="value">${space.camera.online ? "Online" : "Offline"} • ${Math.round(space.camera.confidence*100)}%</div>
-      </div>
+      <div class="box"><div class="label"><span>Smart score</span><span>Rank</span></div><div class="value">${score.toFixed(2)} • ${rankText(score)}</div></div>
+      <div class="box"><div class="label"><span>Data freshness</span><span>Source</span></div><div class="value">${space.camera.online ? `${space.camera.lastSeenSec}s ago` : `Stale`} • Camera</div></div>
+      <div class="box"><div class="label"><span>Occupancy</span><span>${pct(r*100)}%</span></div><div class="value">${space.occupied}/${space.capacity} • ${capLabel(capC)}</div></div>
+      <div class="box"><div class="label"><span>Camera</span><span>Confidence</span></div><div class="value">${space.camera.online ? "Online" : "Offline"} • ${Math.round(space.camera.confidence*100)}%</div></div>
     </div>
-
     <div class="row">
       <h4>Camera detection</h4>
-      <p>
-        Model: <b>${escapeHtml(space.camera.model)}</b><br/>
-        People count is estimated by edge vision + smoothing. Confidence reflects detection quality
-        (lighting, occlusion, frame rate).
-      </p>
+      <p>Model: <b>${escapeHtml(space.camera.model)}</b><br/>People count is estimated by edge vision + smoothing. Confidence reflects detection quality.</p>
       <hr class="sep"/>
       <p>
-        <b>Last update:</b> ${space.camera.online ? `${space.camera.lastSeenSec}s ago` : "offline / no recent frames"}<br/>
+        <b>Last update:</b> ${space.camera.online ? `${space.camera.lastSeenSec}s ago` : "offline"}<br/>
         <b>Estimated occupancy:</b> ${space.occupied} people<br/>
         <b>Noise (raw):</b> ${space.noiseDb} dB • ${capLabel(noiseC)}<br/>
         <b>Temp (raw):</b> ${space.tempC.toFixed(1)}°C • ${capLabel(tempC)}<br/>
         <b>Humidity (raw):</b> ${space.humidity}%<br/>
-        ${space.lightRaw != null && space.lightRaw !== "" ? `<b>Ambient light (raw):</b> ${escapeHtml(String(space.lightRaw))}<br/>` : ""}
       </p>
     </div>
-
     <div class="row">
       <h4>Occupancy trend (last 12 samples)</h4>
       <p>Quick glance trend line for crowding pattern.</p>
       <canvas id="spark" width="360" height="90" style="width:100%; border-radius:14px; background: rgba(15,23,42,.02); border:1px solid rgba(15,23,42,.08)"></canvas>
     </div>
-
     <div class="row">
       <h4>Alerts</h4>
       <p>${alerts.length ? alerts.map(a => `• ${escapeHtml(a)}`).join("<br/>") : "No alerts. Conditions look good."}</p>
@@ -445,87 +395,44 @@ function buildAlerts(s) {
   return alerts;
 }
 
-// =======================
-// Sparkline (canvas)
-// =======================
 function drawSparkline(canvas, series) {
   if (!canvas || !canvas.getContext) return;
   const ctx = canvas.getContext("2d");
   const w = canvas.width, h = canvas.height;
-
   ctx.clearRect(0, 0, w, h);
 
-  const pad = 12;
-  const innerW = w - pad*2;
-  const innerH = h - pad*2;
+  const pad = 12, innerW = w - pad*2, innerH = h - pad*2;
+  const min = Math.min(...series), max = Math.max(...series), span = Math.max(1, max - min);
 
-  const min = Math.min(...series);
-  const max = Math.max(...series);
-  const span = Math.max(1, max - min);
+  ctx.lineWidth = 1; ctx.strokeStyle = "rgba(15,23,42,.10)";
+  ctx.beginPath(); ctx.moveTo(pad, h - pad); ctx.lineTo(w - pad, h - pad); ctx.stroke();
 
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(15,23,42,.10)";
-  ctx.beginPath();
-  ctx.moveTo(pad, h - pad);
-  ctx.lineTo(w - pad, h - pad);
-  ctx.stroke();
-
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "rgba(37,99,235,.80)";
-  ctx.beginPath();
-
+  ctx.lineWidth = 2; ctx.strokeStyle = "rgba(37,99,235,.80)"; ctx.beginPath();
   series.forEach((v, i) => {
-    const x = pad + (i/(series.length-1)) * innerW;
-    const y = pad + (1 - (v - min)/span) * innerH;
-    if (i === 0) ctx.moveTo(x,y);
-    else ctx.lineTo(x,y);
+    const x = pad + (i/(series.length-1)) * innerW, y = pad + (1 - (v - min)/span) * innerH;
+    if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
   });
   ctx.stroke();
 
-  ctx.globalAlpha = 0.12;
-  ctx.fillStyle = "rgba(37,99,235,.55)";
-  ctx.lineTo(w - pad, h - pad);
-  ctx.lineTo(pad, h - pad);
-  ctx.closePath();
-  ctx.fill();
+  ctx.globalAlpha = 0.12; ctx.fillStyle = "rgba(37,99,235,.55)";
+  ctx.lineTo(w - pad, h - pad); ctx.lineTo(pad, h - pad); ctx.closePath(); ctx.fill();
 
-  const last = series[series.length - 1];
-  const lx = pad + innerW;
-  const ly = pad + (1 - (last - min)/span) * innerH;
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "rgba(22,163,74,.85)";
-  ctx.beginPath();
-  ctx.arc(lx, ly, 4, 0, Math.PI*2);
-  ctx.fill();
+  const last = series[series.length - 1], lx = pad + innerW, ly = pad + (1 - (last - min)/span) * innerH;
+  ctx.globalAlpha = 1; ctx.fillStyle = "rgba(22,163,74,.85)";
+  ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI*2); ctx.fill();
 }
 
-// =======================
-// Toast
-// =======================
 function toast(title, sub) {
   const el = document.createElement("div");
   el.className = "toast";
-  el.innerHTML = `
-    <div class="t-title">${escapeHtml(title)}</div>
-    <div class="t-sub">${escapeHtml(sub)}</div>
-  `;
+  el.innerHTML = `<div class="t-title">${escapeHtml(title)}</div><div class="t-sub">${escapeHtml(sub)}</div>`;
   toastRoot.appendChild(el);
-
-  setTimeout(() => {
-    el.style.opacity = "0";
-    el.style.transform = "translateY(6px)";
-    el.style.transition = "opacity .22s ease, transform .22s ease";
-  }, 2200);
-
+  setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(6px)"; el.style.transition = "opacity .22s ease, transform .22s ease"; }, 2200);
   setTimeout(() => el.remove(), 2600);
 }
 
-// =======================
-// Main render
-// =======================
 function render() {
   const filtered = searchFilter(spaces);
-
   const allSorted = sortAll(filtered);
   allList.innerHTML = "";
   allEmpty.hidden = allSorted.length !== 0;
@@ -537,14 +444,11 @@ function render() {
   rec.forEach((s, i) => recommendedList.appendChild(renderCard(s, { mode: "rec", index: i })));
 }
 
-// =======================
-// Live simulation (like sensors + camera)
-// =======================
 function simulateUpdate() {
-  if (usesFlaskData()) {
-    return;
-  }
   spaces.forEach(s => {
+    // PROTECT LIVE DATA: If this is ASSL and TB is connected, skip the simulation
+    if (s.id === "assl" && dataSource === "thingsboard") return;
+
     if (Math.random() < 0.04) s.camera.online = !s.camera.online;
     s.camera.lastSeenSec = s.camera.online ? randInt(2, 14) : randInt(180, 900);
     s.camera.confidence = s.camera.online ? clampFloat(s.camera.confidence + randFloat(-0.05, 0.05), 0.75, 0.97) : 0;
@@ -561,135 +465,85 @@ function simulateUpdate() {
   });
 }
 
-// =======================
-// Events
-// =======================
 function bindEvents() {
-  // Preference chips
   $$(".chip").forEach(btn => {
     btn.addEventListener("click", () => {
-      const pref = btn.dataset.pref;
-      const value = btn.dataset.value;
-
+      const pref = btn.dataset.pref, value = btn.dataset.value;
       const group = btn.closest(".chip-group");
       group.querySelectorAll(".chip").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-
       prefs[pref] = value;
       render();
     });
   });
 
-  // Search
   q.addEventListener("input", render);
-  $("#clearSearch").addEventListener("click", () => {
-    q.value = "";
-    render();
-  });
-
-  // Sort
+  $("#clearSearch").addEventListener("click", () => { q.value = ""; render(); });
   sortBy.addEventListener("change", render);
 
-  // Refresh
   $("#refresh").addEventListener("click", async () => {
-    if (usesFlaskData()) {
-      await loadRemoteSpaces();
-      if (isLiveFromServer()) {
-        toast("Live update", "Pulled latest data from ThingsBoard (via server).");
-      } else {
-        toast("Refreshed", "Reloaded data from the Study Sense server.");
-      }
-    } else {
-      simulateUpdate();
-      toast("Live update", "Sensor + camera feed simulated refresh.");
-      render();
-    }
+    await loadRemoteSpaces();
+    simulateUpdate();
+    render();
+    toast("Live update", "Refreshed ThingsBoard & simulated feeds.");
   });
 
-  // Drawer close
   $("#drawerClose").addEventListener("click", closeDrawer);
   $("#drawerBackdrop").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeDrawer();
-  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
-  // Delegated actions
   document.addEventListener("click", (e) => {
-    const pinId = e.target?.dataset?.pin;
-    const unpinId = e.target?.dataset?.unpin;
-    const favId = e.target?.dataset?.fav;
+    const pinId = e.target?.dataset?.pin, unpinId = e.target?.dataset?.unpin, favId = e.target?.dataset?.fav;
     const openId = e.target?.closest?.("[data-open]")?.dataset?.open;
 
-    if (pinId) {
-      pinnedToRecommended.add(pinId);
-      toast("Added to Recommended", "Pinned this space to your personalised list.");
-      render();
-      return;
-    }
-    if (unpinId) {
-      pinnedToRecommended.delete(unpinId);
-      toast("Removed from Recommended", "Unpinned this space.");
-      render();
-      return;
-    }
+    if (pinId) { pinnedToRecommended.add(pinId); toast("Added to Recommended", "Pinned space."); render(); return; }
+    if (unpinId) { pinnedToRecommended.delete(unpinId); toast("Removed from Recommended", "Unpinned space."); render(); return; }
     if (favId) {
-      if (favourites.has(favId)) {
-        favourites.delete(favId);
-        toast("Unfavourited", "Removed from favourites.");
-      } else {
-        favourites.add(favId);
-        toast("Favourited", "Added to favourites for quick access.");
-      }
-      render();
-      return;
+      if (favourites.has(favId)) { favourites.delete(favId); toast("Unfavourited", "Removed from favourites."); }
+      else { favourites.add(favId); toast("Favourited", "Added to favourites."); }
+      render(); return;
     }
-
     if (openId && !e.target.closest("[data-pin],[data-unpin],[data-fav],button")) {
       const space = spaces.find(s => s.id === openId);
       if (space) openDrawer(space);
     }
   });
 
-  // Ripple effect
   document.addEventListener("click", (e) => {
     const target = e.target.closest(".btn, .icon-btn, .chip, .card, select");
     if (!target) return;
-
     target.classList.add("ripple");
-    const r = document.createElement("span");
-    r.className = "r";
-
-    const rect = target.getBoundingClientRect();
-    const size = Math.max(rect.width, rect.height);
-    r.style.width = r.style.height = `${size}px`;
-    r.style.left = `${e.clientX - rect.left - size/2}px`;
-    r.style.top  = `${e.clientY - rect.top  - size/2}px`;
-
+    const r = document.createElement("span"); r.className = "r";
+    const rect = target.getBoundingClientRect(), size = Math.max(rect.width, rect.height);
+    r.style.width = r.style.height = `${size}px`; r.style.left = `${e.clientX - rect.left - size/2}px`; r.style.top  = `${e.clientY - rect.top  - size/2}px`;
     target.appendChild(r);
     setTimeout(() => r.remove(), 600);
   }, true);
 }
-
 
 function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
 function randFloat(a,b){ return Math.random()*(b-a)+a; }
 function clampInt(x,min,max){ return Math.min(max, Math.max(min, Math.round(x))); }
 function clampFloat(x,min,max){ return Math.min(max, Math.max(min, x)); }
 
-
+// Initialize
 bindEvents();
-loadRemoteSpaces();
 
-setInterval(() => {
-  if (usesFlaskData()) {
-    loadRemoteSpaces();
-  } else {
-    simulateUpdate();
-    render();
-    if (drawer.classList.contains("open")) {
-      const name = drawerTitle.textContent;
-      const space = spaces.find(s => s.name === name);
-      if (space) openDrawer(space);
-    }
+// Initial load
+(async function init() {
+  await loadRemoteSpaces();
+  render();
+})();
+
+// Main Hybrid Loop
+setInterval(async () => {
+  await loadRemoteSpaces();
+  simulateUpdate();
+  render();
+
+  if (drawer.classList.contains("open")) {
+    const name = drawerTitle.textContent;
+    const space = spaces.find(s => s.name === name);
+    if (space) openDrawer(space);
   }
 }, 12000);
