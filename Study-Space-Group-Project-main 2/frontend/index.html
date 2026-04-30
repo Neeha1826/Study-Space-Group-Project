@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Study Sense • Live Monitoring</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- Toast -->
+    <div id="toastRoot" class="toast-root" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="brand">
+        <!-- Camera-style premium logo -->
+        <div class="logo-camera" aria-label="Study Sense logo"></div>
+
+        <div class="brand-text">
+          <div class="brand-name">Study Sense</div>
+          <div class="brand-sub">Real-time study space intelligence</div>
+        </div>
+      </div>
+
+      <div class="search">
+        <span class="search-ico">⌕</span>
+        <input id="q" type="text" placeholder="Search spaces, address, postcode..." />
+        <button id="clearSearch" class="btn ghost ripple" title="Clear">Clear</button>
+      </div>
+
+      <div class="user">
+        <div class="user-chip">
+          <div class="avatar" title="Logged in user">ZX</div>
+          <div class="user-meta">
+            <div class="user-name">ZhengXi</div>
+            <div class="user-role">Student • Owner</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="grid">
+      <!-- Left: Recommended -->
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Recommended</h2>
+            <p class="muted">Optimised for your preference and live conditions.</p>
+          </div>
+          <button id="refresh" class="btn ripple">Refresh</button>
+        </div>
+
+        <div class="filters">
+          <div class="chip-group">
+            <span class="chip-label">Capacity</span>
+            <button class="chip active ripple" data-pref="cap" data-value="empty">Empty</button>
+            <button class="chip ripple" data-pref="cap" data-value="quiet">Quiet</button>
+            <button class="chip ripple" data-pref="cap" data-value="moderate">Moderate</button>
+            <button class="chip ripple" data-pref="cap" data-value="busy">Busy</button>
+            <button class="chip ripple" data-pref="cap" data-value="full">Full</button>
+          </div>
+
+          <div class="chip-group">
+            <span class="chip-label">Noise</span>
+            <button class="chip active ripple" data-pref="noise" data-value="quiet">Quiet</button>
+            <button class="chip ripple" data-pref="noise" data-value="moderate">Moderate</button>
+            <button class="chip ripple" data-pref="noise" data-value="loud">Loud</button>
+          </div>
+
+          <div class="chip-group">
+            <span class="chip-label">Temp</span>
+            <button class="chip ripple" data-pref="temp" data-value="cold">Cold</button>
+            <button class="chip active ripple" data-pref="temp" data-value="comfortable">Comfortable</button>
+            <button class="chip ripple" data-pref="temp" data-value="warm">Warm</button>
+            <button class="chip ripple" data-pref="temp" data-value="hot">Hot</button>
+          </div>
+        </div>
+
+        <div class="scroll">
+          <div id="recommendedList" class="stack"></div>
+          <div class="empty" id="recommendedEmpty" hidden>No results. Try relaxing filters.</div>
+        </div>
+      </section>
+
+      <!-- Right: All spaces -->
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>All Spaces</h2>
+            <p class="muted">Click a space to open details. Add favourites for quick access.</p>
+          </div>
+
+          <div class="sort">
+            <span class="muted">Sort</span>
+            <select id="sortBy" class="ripple">
+              <option value="score">Smart score</option>
+              <option value="occupancy">Occupancy (low→high)</option>
+              <option value="temp">Temperature (low→high)</option>
+              <option value="hum">Humidity (low→high)</option>
+              <option value="noise">Noise (quiet→loud)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="scroll">
+          <div id="allList" class="stack"></div>
+          <div class="empty" id="allEmpty" hidden>No spaces found.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Drawer (Details) -->
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <div class="drawer-title" id="drawerTitle">Space details</div>
+        <div class="drawer-sub" id="drawerSub">—</div>
+      </div>
+      <button id="drawerClose" class="icon-btn ripple" title="Close">×</button>
+    </div>
+
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+
+  <div id="drawerBackdrop" class="backdrop" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
