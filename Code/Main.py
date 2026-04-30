@@ -38,6 +38,8 @@ if __name__ == '__main__':
             # Safely update the shared state so the background thread can grab it
             with state.frame_lock:
                 state.latest_frame = frame
+                
+            frame= cv2.rotate(frame, cv2.ROTATE_180)
 
             # Pass the frame to ui.py to draw the text and graphics
             frame = draw_ui(frame, state.libraryStats)
