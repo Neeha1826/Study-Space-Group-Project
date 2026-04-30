@@ -80,9 +80,14 @@ function updateDataSourcePill() {
 }
 
 const TB_BASE_URL = "https://eu.thingsboard.cloud";
-const TB_DEVICE_ID = "f947bef0-4194-11f1-9a3c-1fb54f58cf69";
 const TB_USERNAME = "viewer@cardiff.ac.uk";
 const TB_PASSWORD = "test123";
+
+// Map multiple devices to their respective space IDs
+const TB_DEVICES = [
+  { id: "f947bef0-4194-11f1-9a3c-1fb54f58cf69", spaceId: "assl" },
+  { id: "d8591950-422f-11f1-bfc4-25a208a27468", spaceId: "abacws" }
+];
 
 let tbJwtToken = null;
 
@@ -104,52 +109,65 @@ async function getTbToken() {
 async function loadRemoteSpaces() {
   try {
     const token = await getTbToken();
-
     const keys = "temperature,humidity,occupancy,noiseLevel";
-    const res = await fetch(`${TB_BASE_URL}/api/plugins/telemetry/DEVICE/${TB_DEVICE_ID}/values/timeseries?keys=${keys}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'X-Authorization': `Bearer ${token}`
+    let hasAtLeastOneSuccess = false;
+
+    // Loop through all defined devices
+    for (const device of TB_DEVICES) {
+      try {
+        const res = await fetch(`${TB_BASE_URL}/api/plugins/telemetry/DEVICE/${device.id}/values/timeseries?keys=${keys}`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'X-Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (res.status === 401) {
+          tbJwtToken = null;
+          throw new Error("Token expired");
+        }
+        if (!res.ok) throw new Error(`Failed to fetch telemetry for ${device.spaceId}`);
+
+        const tbData = await res.json();
+
+        const liveTemp = tbData.temperature ? parseFloat(tbData.temperature[0].value) : null;
+        const liveHum = tbData.humidity ? parseFloat(tbData.humidity[0].value) : null;
+        const liveOcc = tbData.occupancy ? parseInt(tbData.occupancy[0].value) : null;
+        const liveNoise = tbData.noiseLevel ? parseInt(tbData.noiseLevel[0].value) : null;
+
+        const targetSpace = spaces.find(s => s.id === device.spaceId);
+
+        if (targetSpace) {
+          if (liveTemp !== null) targetSpace.tempC = liveTemp;
+          if (liveHum !== null) targetSpace.humidity = liveHum;
+          if (liveOcc !== null) targetSpace.occupied = liveOcc;
+          if (liveNoise !== null) targetSpace.noiseDb = liveNoise;
+
+          targetSpace.camera.online = true;
+          targetSpace.camera.lastSeenSec = 0;
+          targetSpace.camera.confidence = 0.95;
+
+          const ratio = targetSpace.occupied / targetSpace.capacity;
+          targetSpace.history.shift();
+          targetSpace.history.push(Math.round(ratio * 100));
+        }
+
+        hasAtLeastOneSuccess = true;
+      } catch (deviceError) {
+        console.error(`ThingsBoard Error for ${device.spaceId}:`, deviceError);
       }
-    });
-
-    if (res.status === 401) {
-      tbJwtToken = null;
-      throw new Error("Token expired");
     }
-    if (!res.ok) throw new Error("Failed to fetch telemetry");
 
-    const tbData = await res.json();
-
-    const liveTemp = tbData.temperature ? parseFloat(tbData.temperature[0].value) : null;
-    const liveHum = tbData.humidity ? parseFloat(tbData.humidity[0].value) : null;
-    const liveOcc = tbData.occupancy ? parseInt(tbData.occupancy[0].value) : null;
-    const liveNoise = tbData.noiseLevel ? parseInt(tbData.noiseLevel[0].value) : null;
-
-    const targetSpace = spaces.find(s => s.id === "assl");
-
-    if (targetSpace) {
-      if (liveTemp !== null) targetSpace.tempC = liveTemp;
-      if (liveHum !== null) targetSpace.humidity = liveHum;
-      if (liveOcc !== null) targetSpace.occupied = liveOcc;
-      if (liveNoise !== null) targetSpace.noiseDb = liveNoise;
-
-      targetSpace.camera.online = true;
-      targetSpace.camera.lastSeenSec = 0;
-      targetSpace.camera.confidence = 0.95;
-
-      const ratio = targetSpace.occupied / targetSpace.capacity;
-      targetSpace.history.shift();
-      targetSpace.history.push(Math.round(ratio * 100));
-    }
+    // Only fallback to simulated data if ALL devices fail
+    if (!hasAtLeastOneSuccess) throw new Error("All device fetches failed");
 
     dataSource = "thingsboard";
     tbWarning = null;
     updateDataSourcePill();
 
   } catch (e) {
-    console.error("ThingsBoard Error:", e);
+    console.error("ThingsBoard Fatal Error:", e);
     dataSource = "client-demo";
     tbWarning = "Live connection lost. Using simulated data.";
     updateDataSourcePill();
@@ -446,8 +464,11 @@ function render() {
 
 function simulateUpdate() {
   spaces.forEach(s => {
-    // PROTECT LIVE DATA: If this is ASSL and TB is connected, skip the simulation
-    if (s.id === "assl" && dataSource === "thingsboard") return;
+    // PROTECT LIVE DATA: Check if this space ID exists in our ThingsBoard mapping array
+    const isLiveSpace = TB_DEVICES.some(device => device.spaceId === s.id);
+
+    // If it's a mapped space and TB is connected, skip the simulation
+    if (isLiveSpace && dataSource === "thingsboard") return;
 
     if (Math.random() < 0.04) s.camera.online = !s.camera.online;
     s.camera.lastSeenSec = s.camera.online ? randInt(2, 14) : randInt(180, 900);
