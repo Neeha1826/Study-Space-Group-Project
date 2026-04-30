@@ -5,7 +5,7 @@ import grovepi
 
 import config
 import state
-from mqtt_client import client
+from client import client
 
 # Load the AI model and configure hardware once when the script starts
 model = YOLO(config.YOLO_MODEL)

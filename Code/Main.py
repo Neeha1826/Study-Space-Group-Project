@@ -2,9 +2,9 @@ import threading
 import cv2
 from picamera2 import Picamera2
 import state
-from mqtt_client import connect_mqtt, disconnect_mqtt
+from client import connect_mqtt, disconnect_mqtt
 from ui import draw_ui
-from sensor_worker import updateSensors
+from sensorWorker import updateSensors
 
 if __name__ == '__main__':
     print("Starting Library Monitor...")
