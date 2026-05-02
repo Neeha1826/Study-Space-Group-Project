@@ -581,6 +581,10 @@ hr.sep{ border:none; border-top: 1px solid rgba(15,23,42,.10); margin: 6px 0; }
   color: var(--bad);
 }
 
+.auth-error.ok{
+  color: var(--good);
+}
+
 .auth-switch{
   margin-top: 12px;
   border: 0;
