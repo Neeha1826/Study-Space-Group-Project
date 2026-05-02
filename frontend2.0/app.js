@@ -303,6 +303,13 @@ function getInitials(name) {
 function setAuthError(message) {
   authError.textContent = message;
   authError.hidden = !message;
+  authError.classList.remove("ok");
+}
+
+function setAuthInfo(message) {
+  authError.textContent = message;
+  authError.hidden = !message;
+  authError.classList.add("ok");
 }
 
 function setAuthMode(mode) {
@@ -320,6 +327,16 @@ function setAuthMode(mode) {
 function setAppLocked(locked) {
   document.body.classList.toggle("auth-locked", locked);
   authOverlay.hidden = !locked;
+}
+
+function closeAuthOverlay() {
+  setAppLocked(false);
+  authOverlay.style.display = "none";
+}
+
+function openAuthOverlay() {
+  setAppLocked(true);
+  authOverlay.style.display = "";
 }
 
 function updateUserChip() {
@@ -356,7 +373,7 @@ function loginUser(username, password) {
   currentUser = { username: match.username };
   localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
   updateUserChip();
-  setAppLocked(false);
+  closeAuthOverlay();
   return true;
 }
 
@@ -380,7 +397,13 @@ function restoreSession() {
     if (!raw) return false;
     const saved = JSON.parse(raw);
     if (!saved?.username) return false;
-    currentUser = { username: saved.username };
+    const users = loadUsers();
+    const exists = users.some(u => u.username.toLowerCase() === String(saved.username).toLowerCase());
+    if (!exists) {
+      localStorage.removeItem(SESSION_KEY);
+      return false;
+    }
+    currentUser = { username: String(saved.username) };
     return true;
   } catch {
     return false;
@@ -394,7 +417,7 @@ function logout() {
   closeDrawer();
   stopMainLoop();
   setAuthMode("login");
-  setAppLocked(true);
+  openAuthOverlay();
 }
 
 function renderCard(s, { mode, index }) {
@@ -663,7 +686,7 @@ function bindEvents() {
       setAuthMode("login");
       authPassword.value = "";
       authConfirm.value = "";
-      setAuthError("Account created. Please login.");
+      setAuthInfo("Account created. Please login.");
       return;
     }
 
@@ -678,6 +701,7 @@ function bindEvents() {
     await loadRemoteSpaces();
     render();
     startMainLoop();
+    closeAuthOverlay();
     toast("Welcome back", `${username} logged in successfully.`);
   });
 
@@ -750,11 +774,11 @@ setAuthMode("login");
   const hasSession = restoreSession();
   updateUserChip();
   if (!hasSession) {
-    setAppLocked(true);
+    openAuthOverlay();
     return;
   }
 
-  setAppLocked(false);
+  closeAuthOverlay();
   await loadRemoteSpaces();
   render();
   startMainLoop();
