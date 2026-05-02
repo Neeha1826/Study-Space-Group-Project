@@ -7,10 +7,10 @@ ACCESS_TOKEN = 'cZ9i29BrJiAMTJv3d99w'
 DHT_PORT = 8
 
 # Sound Sensor = A0 Port
-SOUND_PORT = 0
+SOUND_PORT = 1
 
 # Light Sensor = 4 Port
-LIGHT_PORT = 4
+LIGHT_PORT = 0
 
 # Light Sensor Type = 0 = PIR
 LIGHT_TYPE = 0
